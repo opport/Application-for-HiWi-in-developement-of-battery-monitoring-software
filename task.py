@@ -6,12 +6,16 @@ Temperature Data Task
 """
 
 
-
+import os
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.dates import DateFormatter
 import pandas as pd
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+
+output_folder = Path(os.getcwd()) / "output/"
+Path(output_folder).mkdir(exist_ok=True)
 
 
 """
@@ -32,17 +36,17 @@ Summary:
     and converts the dataframe into a timeseries dataframe w.r.t. a given value
 """
 def to_series_interpolate(data,value='Wert',interval=15,intrp_method='akima'):
-    
+
     data['Zeitstempel']=pd.to_datetime(data['Zeitstempel'],format='%Y%m%d%H%M')
     data = pd.DataFrame(data,columns=['Zeitstempel',value])
     data.set_index('Zeitstempel',inplace=True)
-    
+
     data = data.resample(str(interval)+'min').interpolate(method=intrp_method)
-    
+
     ### safety margin of 1.25 to ensure all data point are visible when plotting ###
     limits = [1.25*(data[data.columns[0]].min()),1.25*(data[data.columns[0]].max())]
-    
-    
+
+
     return data,limits
 
 
@@ -62,18 +66,18 @@ Summary:
     and returns the max and min temperature values by year as 2 timeseries dataframes
 """
 def max_min_yearly(data):
-    
+
     ### finding all years in the given data ###
     years = sorted(list(set(data.index.year)))
 
     max_temp = pd.DataFrame()
     min_temp = pd.DataFrame()
-    
+
     for y in years:
-        
+
         max_temp = max_temp.append(data.loc[[data[str(y)][data.columns[0]].idxmax()]])
         min_temp = min_temp.append(data.loc[[data[str(y)][data.columns[0]].idxmin()]])
-    
+
     return max_temp,min_temp
 
 
@@ -94,23 +98,23 @@ Summary:
     days of each provided year onto the same axis, over time of day
 """
 def max_min_day_plot(data):
-    
+
     ### finding all years in the given data ###
     years = sorted(list(set(data.index.year)))
-     
+
     fig = plt.figure(figsize=(10,10),tight_layout=True)
     plt.suptitle('Hottest and Coldest Days vs Time of Day by Year')
-    
+
     for y in years:
-        
+
         max_day = data[data[str(y)][data.columns[0]].idxmax().strftime('%Y%m%d')]
         ### convert time stamp index to '%H:%M:%S' since working within a day ###
         max_day.index = max_day.index.strftime('%H:%M:%S')
-        
+
         min_day = data[data[str(y)][data.columns[0]].idxmin().strftime('%Y%m%d')]
         ### convert time stamp index to '%H:%M:%S' since working within a day ###
         min_day.index = min_day.index.strftime('%H:%M:%S')
-        
+
         ax = fig.add_subplot(2, 1, 1)
         ax.plot(max_day,'-',label=data[str(y)][data.columns[0]].idxmax().strftime('%Y-%m-%d'))
         ax.legend(loc="best")
@@ -120,7 +124,7 @@ def max_min_day_plot(data):
         ax.set_ylim(limits[0],limits[1])
         ax.xaxis.set_major_locator(plt.MaxNLocator(24))
         plt.xticks(rotation=45)
-        
+
         ax = fig.add_subplot(2, 1, 2)
         ax.plot(min_day,'--',label=data[str(y)][data.columns[0]].idxmin().strftime('%Y-%m-%d'))
         ax.legend(loc="best")
@@ -130,7 +134,7 @@ def max_min_day_plot(data):
         ax.set_ylim(limits[0],limits[1])
         ax.xaxis.set_major_locator(plt.MaxNLocator(24))
         plt.xticks(rotation=45)
-         
+
     fig.savefig('Hottest and Coldest Days vs Time of Day by Year')
     fig.show()
 
@@ -148,13 +152,12 @@ Outputs:
     
 Summary:
     This is a generic function that takes in a list of dataframes and exports it as a .csv file to
-    working directory
+    an output folder in the working directory
 """
 def to_csv_file(data_list,data_list_names):
-    
+
     for dataframe,dataframe_name in zip(data_list,data_list_names):
-            
-        dataframe.to_csv(dataframe_name+'.csv')
+        dataframe.to_csv(output_folder / (dataframe_name + '.csv'))
 
 
 
@@ -173,10 +176,10 @@ Summary:
 """
 def to_plotter(data_list,data_list_names):
 
-    
+
     for dataframe,dataframe_name in zip(data_list,data_list_names):
-        
-        
+
+
         fig,ax = plt.subplots(figsize=(10,5),tight_layout=True)
         plt.suptitle(dataframe_name)
         plt.plot(dataframe,'r-')
@@ -187,7 +190,7 @@ def to_plotter(data_list,data_list_names):
         ax.xaxis.set_major_formatter(date_form)
         ax.xaxis.set_major_locator(plt.MaxNLocator(24))
         plt.xticks(rotation=45)
-        plt.savefig(dataframe_name)
+        plt.savefig(output_folder / dataframe_name)
         plt.show()
 
 
@@ -218,35 +221,35 @@ Summary:
     - saves figure of SARIMAX model and residuals to working directory
 """
 def train_sarimax(data):
-    
+
     week_series = data['Wert'].resample('W').mean()
-    
+
     train_test_ratio = 0.85
-    
+
     train_data = week_series.iloc[:int(train_test_ratio*(len(week_series)))]
     test_data = week_series.iloc[int(train_test_ratio*(len(week_series))):]
-    
+
     model = SARIMAX(train_data,order=(1,1,1),seasonal_order=(1,1,1,52))
     model_fit = model.fit()
-    
-    
+
+
     start = len(train_data)
-    
+
     ### define end as global variable to be used by predict_sarimax() ###
     global end
     end = len(train_data) + len(test_data) - 1
-    
+
     prediction_train = model_fit.predict(0, start).rename('Wert')
     prediction_test = model_fit.predict(start, end).rename('Wert')
-    
+
     prediction_total = pd.concat([prediction_train,prediction_test])
-    
+
     residual = week_series - prediction_total
     residual.index.name = 'Zeitstempel'
-   
+
     fig = plt.figure(figsize=(10,10),tight_layout=True)
     plt.suptitle('SARIMAX Weekly Model')
-    
+
     ax = fig.add_subplot(2, 1, 1)
     ax.plot(week_series,'k-',label='Actual')
     ax.plot(prediction_train,'b-',label='Prediction - Train Set')
@@ -261,7 +264,7 @@ def train_sarimax(data):
     ax.xaxis.set_major_formatter(date_form)
     ax.xaxis.set_major_locator(plt.MaxNLocator(24))
     plt.xticks(rotation=45)
-    
+
     ax = fig.add_subplot(2, 1, 2)
     ax.plot(residual,'k-',label='Residuals')
     ax.axvline(x=prediction_test.index[0],color='k',ls='--')
@@ -274,10 +277,10 @@ def train_sarimax(data):
     ax.xaxis.set_major_formatter(date_form)
     ax.xaxis.set_major_locator(plt.MaxNLocator(24))
     plt.xticks(rotation=45)
-    
-    fig.savefig('SARIMAX Weekly Model')
+
+    fig.savefig(output_folder / 'SARIMAX Weekly Model')
     fig.show()
-    
+
     return model_fit,residual
 
 
@@ -303,16 +306,16 @@ Summary:
     - saves figure of SARIMAX predictions to working directory
 """
 def predict_sarimax(data,model_fit,weeks=10,res='D'):
-    
+
     week_series = data['Wert'].resample('W').mean()
-    
+
     prediction = model_fit.predict(end, end+weeks).rename('Wert')
     prediction = prediction.resample(res).interpolate(method='linear')
     prediction.index.name = 'Zeitstempel'
-    
+
     fig = plt.figure(figsize=(10,10),tight_layout=True)
     plt.suptitle('SARIMAX Prediction')
-    
+
     ax = fig.add_subplot(2, 1, 1)
     ax.plot(week_series,'k-',label='Actual')
     ax.plot(prediction,'r-',label='Prediction weeks : '+str(weeks))
@@ -326,7 +329,7 @@ def predict_sarimax(data,model_fit,weeks=10,res='D'):
     ax.xaxis.set_major_formatter(date_form)
     ax.xaxis.set_major_locator(plt.MaxNLocator(24))
     plt.xticks(rotation=45)
-    
+
     ax = fig.add_subplot(2, 1, 2)
     ax.plot(prediction,'ro-',label='Prediction weeks : '+str(weeks))
     ax.legend(loc="best")
@@ -338,11 +341,10 @@ def predict_sarimax(data,model_fit,weeks=10,res='D'):
     ax.xaxis.set_major_formatter(date_form)
     ax.xaxis.set_major_locator(plt.MaxNLocator(24))
     plt.xticks(rotation=45)
-    
-    fig.savefig('SARIMAX Prediction')
+
+    fig.savefig(output_folder / 'SARIMAX Prediction')
     fig.show()
-    
-    return prediction
+
     return prediction
 
 
@@ -355,23 +357,22 @@ DO NOT PANIC IF CODE SEEMS STUCK
 
 
 if __name__ == '__main__':
-    
+
     data_temp = pd.read_csv("temperatures.csv")
-    
+
     ### define limits as global variable for plotting inside all functions ###
     global limits
     series_temp,limits = to_series_interpolate(data_temp)
-    
-    
+
+
     max_yearly,min_yearly = max_min_yearly(series_temp)
-    
+
     max_min_day_plot(series_temp)
-    
+
     to_csv_file([series_temp,max_yearly,min_yearly],['Interpolated Temperature','Max Yearly Temperature','Min Yearly Temperature'])
     to_plotter([series_temp,max_yearly,min_yearly],['Interpolated Temperature vs Time','Max Yearly Temperature vs Time','Min Yearly Temperature vs Time'])
-    
+
     model_sarimax,residuals = train_sarimax(series_temp)
-    
+
     pred_series = predict_sarimax(series_temp,model_sarimax,weeks=10,res='D')
-    
-    
+
